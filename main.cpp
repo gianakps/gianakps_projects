@@ -1,98 +1,72 @@
-* 
- * File:   main.cpp
- * Copyright: gianakps
+/**
+ * These questions are desgined to facilitate students to gain practice for
+ * upcoming job interviews -- at times also called exam(s).
  *
- * Created on October 2, 2018, 10:19 AM
+ * Copyright (C) 2018 raodm@miamiOH.edu
+ * Solutions by Peter Gianakas
  */
 
-// Copyright (C) 2018 raodm@miamioh.edu.
-// Implementation by Peter Gianakas
-
-#include <unistd.h>
+// All the necessary includes are already here
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <iostream>
+#include <unistd.h>
 #include <string>
+#include <iostream>
+#include <thread>
+#include <mutex>
 #include <vector>
-#include <unordered_map>
 
-// Convenience for using methods in standard namespace
+
+// Convenience for namespace
 using namespace std;
 
-/** An OS operation requires removal of all wildcards (.ie., ''
-    characters) in each line of a given input stream.  Coplete teh
-    following cleanUp method to remove all *' characters from a given
-    string and rpint each line to a given output stream.
-
-    \param[in] is The input stream from where lines are to be read.
-
-    \param[out] os The output stream to where lines are to be written.
+/**
+ * The threadMain method below is called (from main.cpp) on many
+ * threads, with id (i.e., 0, 1, 2, ...) indicating the logical number
+ * of the thread. Implement threadMain to print data in order of id
+ * value (see sample outputs in document for expected outputs)
  */
-void cleanUp(std::istream& is, std::ostream& os) {
-    //  Implement this method.
-    std::string line;
-    std::string result;
-    while (std::getline(is, line)) {
-        for (size_t i = 0; i < line.size(); i++) {
-            char c = line[i];
-            if (c != '*')
-                result += c;
-        }
-        std::cout << result << std::endl;
-        result = "";
-    }
+void threadMain(const int id, const std::string data) {
+    static std::mutex mut;
+    static int count = 0;
+    while (count != id) {}
+    std::cout << "id " << id << ": " << data << std::endl;
+    std::lock_guard<std::mutex> guard(mut);
+    count++;
 }
 
-// Alias for an unordered map used in merge method below.
-using UserMap = std::unordered_map<std::string, std::string>;
 
-/** Complete the following method that merges values (with a '-'
-   between values) with the same key in both maps (while ignoring keys
-   that are not present in both). Example maps (in key, value format)
-   are shown in the supplied document. NOTE: order of entries in the
-   unordered maps is random.
+const int READ = 0, WRITE = 1;
+// Accomplish "ls -l /tmp | grep raodm"
 
-   \param[in] m1 The first unordered map to be used for merging.
- * 
-   \param[in] m2 The second unordered map to be used for merging.
-
-   \return An unordered map with values merged with a '-' for keys
-   present in both unordered maps (m1 and m2).
- */
-UserMap merge(const UserMap& m1, const UserMap& m2) {
-    // Implement this method. For now this method returns an empty map
-    // to avoid compiler warnings
-    UserMap result;
-    for (auto n : m1) {
-        for (auto x : m2) {
-            if (n.first == x.first) {
-                result[n.first] = n.second + "-" + x.second;
-            }
+void anonPipes() {
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        std::cerr << "Error creating pipe!\n";
+        return;
+    }
+    int pid2 = -1, pid1 = -1;
+    pid1 = fork();
+    if (pid1 == 0) {
+        close(pipefd[READ]);
+        dup2(pipefd[WRITE], WRITE);
+        execlp("ls", "ls", "-l", "/tmp", nullptr);
+    } else {
+        // Run "grep raodm"
+        pid2 = fork();
+        if (pid2 == 0) {
+            close(pipefd[WRITE]);
+            dup2(pipefd[READ], READ);
+            execlp("grep", "grep", "raodm", nullptr);
         }
     }
-    return result;
-}
-
-/** Complete the following method to run the Linux command 'head -num
-    GPL.txt' with different values of 'num' supplied as the
-    argument. For example, if numList = {1, 17, 3}, then this method
-    should run head 3 times, in a serial manner, as: "head -1
-    GPL.txt", "head -17 GPL.txt", "head -3 GPL.txt"
- 
-    @param[in] numList The list of numbers to be used to run the head
-    command.
- */
-void serial(std::vector<int> numList) {
-    // Implement this method
-    std::vector<char*> args;
-        for (auto n : numList) {
-            std::string arg = "-" + std::to_string(n);
-            std::string cmd = "head";
-            std::string file = "GPL.txt";
-            std::vector<char*> args = {&cmd[0], &arg[0], &file[0], nullptr};
-            if (int pid = fork() == 0) {
-            execvp(args[0], &args[0]);        
-            } else {
-                waitpid(pid, nullptr, 0);
-            }
-    }
+    // In parent process.
+    // Wait for ps -fea command to finish
+    waitpid(pid1, nullptr, 0);
+    // Close write-end of input stream
+    // to grep Otherwise grep will *not*
+    // terminate!
+    close(pipefd[1]);
+    // Wait for grep command to finish
+    waitpid(pid2, nullptr, 0);
 }
